@@ -4,8 +4,8 @@ services:
     image: mreferre/harbor-setupwrapper
     container_name: harbor-setupwrapper
     environment:
-      - HARBORHOSTNAME='pod4.vmug.it'
-      - HARBOR_ADMIN_PASSWORD='Vmware123!'
+      - HARBORHOSTNAME=pod4.vmug.it
+      - HARBOR_ADMIN_PASSWORD=Vmware123!
     volumes:
       - /etc/registry
       - /etc/ui
@@ -14,8 +14,11 @@ services:
       - /configdb
       - /configui
       - /configjobservice
-    command: /harbor/harbor-setupwrapper.sh
-
+    command: ["/harbor/harbor-setupwrapper.sh"]
+    network_mode: "none"
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.container.start_once: 'true'
   log:
     image: vmware/harbor-log:0.5.0
     container_name: harbor-log
@@ -24,7 +27,11 @@ services:
       - /var/log/harbor/:/var/log/docker/
     ports:
       - 1514:514
-
+    labels:
+      io.rancher.scheduler.global: 'true'
+      io.rancher.scheduler.affinity:host_label: harbor-log=true
+      io.rancher.scheduler.affinity:container_label_soft_ne: io.rancher.stack_service.name=$${stack_name}/$${service_name}
+      io.rancher.container.hostname_override: container_name
   registry:
     image: library/registry:2.5.0
     container_name: registry
@@ -39,13 +46,14 @@ services:
       ["serve", "/etc/registry/config.yml"]
     depends_on:
       - log
-      - harbor-setupwrapper
     logging:
       driver: "syslog"
       options:  
         syslog-address: "tcp://127.0.0.1:1514"
         tag: "registry"
-
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.sidekicks: harbor-setupwrapper
   mysql:
     image: vmware/harbor-db:0.5.0
     container_name: harbor-db
@@ -56,15 +64,19 @@ services:
       - harbor-setupwrapper
     depends_on:
       - log
-      - harbor-setupwrapper
     logging:
       driver: "syslog"
       options:  
         syslog-address: "tcp://127.0.0.1:1514"
         tag: "mysql"
-    entrypoint: "/bin/sh -c"
-    command: "/configdb/entrypointdb.sh"
-
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - /configdb/entrypointdb.sh
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.sidekicks: harbor-setupwrapper
   ui:
     image: vmware/harbor-ui:0.5.0
     container_name: harbor-ui
@@ -75,14 +87,22 @@ services:
       - harbor-setupwrapper
     depends_on:
       - log
-      - harbor-setupwrapper
     logging:
       driver: "syslog"
       options:  
         syslog-address: "tcp://127.0.0.1:1514"
         tag: "ui"
-    entrypoint: /configui/entrypointui.sh
-
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - /configui/entrypointui.sh
+    external_links:
+      - registry
+      - mysql
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.sidekicks: harbor-setupwrapper
   jobservice:
     image: vmware/harbor-jobservice:0.5.0
     container_name: harbor-jobservice
@@ -91,16 +111,26 @@ services:
       - /data/job_logs:/var/log/jobs
     volumes_from:
       - harbor-setupwrapper
-    depends_on:
-      - ui
-      - harbor-setupwrapper
+    external_links:
+      - registry:registry
+      - ui:ui
     logging:
       driver: "syslog"
       options:  
         syslog-address: "tcp://127.0.0.1:1514"
         tag: "jobservice"
-    entrypoint: /configjobservice/entrypointjobservice.sh
-
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - /configjobservice/entrypointjobservice.sh
+    external_links:
+      - registry
+      - ui
+      - mysql
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.sidekicks: harbor-setupwrapper
   proxy:
     image: nginx:1.11.5
     container_name: nginx
@@ -111,13 +141,15 @@ services:
       - 80:80
       - 443:443
     depends_on:
-      - harbor-setupwrapper
-      - mysql
+      - log
+    external_links:
       - registry
       - ui
-      - log
     logging:
       driver: "syslog"
       options:  
         syslog-address: "tcp://127.0.0.1:1514"
         tag: "proxy"
+    labels:
+      io.rancher.container.hostname_override: container_name
+      io.rancher.sidekicks: harbor-setupwrapper

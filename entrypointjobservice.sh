@@ -1,6 +1,6 @@
 ENV_FILE="/configjobservice/env"
 if [ -f ${ENV_FILE} ]; then
-    source ${ENV_FILE}
+    export $(cat $ENV_FILE | xargs)
 fi  
 
 /harbor/harbor_jobservice
